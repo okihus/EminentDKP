@@ -785,7 +785,7 @@ function EminentDKP:OnInitialize()
     end
   end
   
-  self.myName = UnitName("player")
+  self.myName, self.myRealm = UnitFullName("player")
   self.myGuild = GetGuildInfo("player")
   
   self.auctionItems = {}
@@ -1111,6 +1111,7 @@ end
 
 -- Permission check for a command *sent* to a masterlooter
 function EminentDKP:EnsureToGroupLeader(addon,method,from)
+  local name, realm = string.gmatch(from, "(%w+)-(%w+)")
   if not self.amGroupLeader then
     self:WhisperPlayer(addon,method,L["That command must be sent to the master looter."],from)
     return false
@@ -1119,10 +1120,11 @@ function EminentDKP:EnsureToGroupLeader(addon,method,from)
     self:WhisperPlayer(addon,method,L["The master looter must be an officer."],from)
     return false
   end
-  if not UnitExists(from) then
-    self:WhisperPlayer(addon,method,L["You are not in the current group."],from)
-    return false
-  end
+  -- MODIFIED CHECK IF PLAYER IS IN RAID GROUP
+  -- if not UnitExists(name) then
+  --   self:WhisperPlayer(addon,method,L["You are not in the current group."],from)
+  --   return false
+  -- end
   if not self:IsEnabled() then
     self:WhisperPlayer(addon,method,L["EminentDKP is currently disabled."],from)
     return false
@@ -2424,17 +2426,21 @@ function EminentDKP:CheckGroupPlayers()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() or not self:IsEnabled() then return end
 
+  if is_solo() then return end
+
+  if is_in_party() then return end
+
   if is_party_lfg() then return end
-  
-  local is_party = is_in_party()
-  for d = 1, (is_party and 5 or 40) do
-    local name = UnitName((is_party and "party" or "raid")..d)
-    if name and UnitExists(name) and not self:PlayerExistsInPool(name) then
-      local classname = select(2, UnitClass(name))
-      local guildName = GetGuildInfo(name)
-      -- Only people from the same guild can get added
-      if classname and guildName == self.myGuild then
-        self:CreateAddPlayerSyncEvent(name,classname)
+
+  if not IsInRaid() then return end
+
+  for d = 1, GetNumGroupMembers() do
+    local name, rank, subgroup, level, classname = GetRaidRosterInfo(d)
+    if name and UnitExists("raid"..d) and not self:PlayerExistsInPool(name) then
+      local unitName, realmName = UnitFullName("raid"..d)
+      if unitName and realmName then
+        local fullName = unitName .. "-" .. realmName
+        self:CreateAddPlayerSyncEvent(fullName,classname)
       end
     end
   end
@@ -2711,9 +2717,11 @@ end
 
 -- Place a bid on an active auction
 function EminentDKP:Bid(addon,from,amount)
+  local name, realm = string.gmatch(from, "(%w+)-(%w+)")
   if not self:EnsureToGroupLeader(addon,"bid",from) then return end
   if auction_active then
-    if eligible_looters[from] then
+    print(eligible_looters[name])
+    if eligible_looters[name] then
       local bid = math.floor(tonumber(amount) or 0)
       if bid >= 1 then
         if self:PlayerHasDKP(from,bid) then
@@ -2818,8 +2826,9 @@ function EminentDKP:WhisperBounty(to)
 end
 
 function EminentDKP:WhisperCheck(who, to)
-  if self:PlayerExistsInPool(who) then
-    local data = self:GetPlayerByName(who)
+  local name, realm = string.gmatch(who, "(%w+)-(%w+)")
+  if self:PlayerExistsInPool(name) then
+    local data = self:GetPlayerByName(name)
     sendchat(L["Player Report for %s:"]:format(who), to, 'whisper')
     sendchat(L["Current DKP:"].. ' '..self:StdNumber(data.currentDKP), to, 'whisper')
     sendchat(L["Lifetime DKP:"].. ' '..self:StdNumber(data.earnedDKP), to, 'whisper')

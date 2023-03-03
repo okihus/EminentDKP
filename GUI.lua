@@ -563,7 +563,7 @@ function EminentDKP:CancelAuction(slot)
   frame.status.spark:Hide()
   frame.winner:SetText(L["Auction cancelled"])
   frame.winner:Show()
-  PlaySound("AuctionWindowClose")
+  --PlaySound("AuctionWindowClose")
 end
 
 -- Start the timer and show bid box/button for an item
