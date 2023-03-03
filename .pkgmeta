@@ -1,0 +1,7 @@
+package-as: EminentDKPRevived
+
+ignore:
+    - .vscode
+    - .gitattributes
+
+enable-nolib-creation: no
