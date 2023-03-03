@@ -27,6 +27,7 @@
   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 ]]
 
+local Version = GetAddOnMetadata("EminentDKP", "Version")
 EminentDKP = LibStub("AceAddon-3.0"):NewAddon("EminentDKP", "AceComm-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceConsole-3.0", "AceHook-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale("EminentDKP", false)
 local libCH = LibStub:GetLibrary("LibChatHandler-1.0")
@@ -37,7 +38,8 @@ local libC = LibStub:GetLibrary("LibCompress")
 local libCE = libC:GetAddonEncodeTable()
 --local canuse = LibStub:GetLibrary("LibCanUse-1.0")
 
-local VERSION = '2.2.5'
+
+local VERSION = tonumber(Version) or Version
 local newest_version = ''
 local needs_update = false
 local addon_versions = {}
@@ -203,6 +205,10 @@ end
 -- Are we in a party?
 local function is_in_party()
   return IsInGroup() == true
+end
+
+local function is_party_lfg()
+  return IsPartyLFG()
 end
 
 local function find_mode(name)
@@ -539,9 +545,11 @@ function EminentDKP:ApplySettings(win)
 
   -- Don't show window if we are solo, option.
   -- Don't show window in a PvP instance, option.
+  -- Don't show window if we are in lfg
   if (self:GetSetting('hidesolo') and is_solo()) or 
      (self:GetSetting('hidepvp') and is_in_pvp()) or 
      (self:GetSetting('hideparty') and is_in_party()) or 
+     (is_party_lfg()) or
      (self:GetSetting('hidecombat') and in_combat) then
     win:Hide()
   else
@@ -1140,16 +1148,16 @@ function EminentDKP:EnsureOfficership()
 end
 
 -- Check if the command can only be used by masterlooter (and officer)
-function EminentDKP:EnsureMasterlooter()
+function EminentDKP:EnsureRaidLeader()
   if not self:EnsureOfficership() then return false end
   -- if self.lootMethod ~= 'master' then
   --   self:DisplayActionResult(L["Master looting must be enabled."])
   --   return false
   -- end
-  -- if not self.amGroupLeader then
-  --   self:DisplayActionResult(L["Only the master looter can use that command."])
-  --   return false
-  -- end
+  if not self:AmRaidLeader() then
+    self:DisplayActionResult(L["Only the master looter can use that command."])
+    return false
+  end
   return true
 end
 
@@ -2415,6 +2423,8 @@ end
 function EminentDKP:CheckGroupPlayers()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() or not self:IsEnabled() then return end
+
+  if is_party_lfg() then return end
   
   local is_party = is_in_party()
   for d = 1, (is_party and 5 or 40) do
@@ -2456,6 +2466,7 @@ function EminentDKP:DisableCheck()
   (self:GetOfficerSetting('guildgroup') and not in_guild_group)
   ]]
   if (self:GetOfficerSetting('disableparty') and is_in_party()) or
+     is_party_lfg() or
      (self:GetOfficerSetting('disablepvp') and is_in_pvp()) then
     enabled = false
     return
@@ -2629,6 +2640,8 @@ end
 function EminentDKP:LOOT_OPENED()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() then return end
+
+  if is_party_lfg() then return end
   
   -- Query some info about this unit...
   local unitName, guid = self:GetTargetNameAndGUID()
@@ -2820,7 +2833,10 @@ end
 ------------- START ADMIN FUNCTIONS -------------
 
 function EminentDKP:AdminStartAuction()
-  if not self:EnsureMasterlooter() then return end
+  if not self:EnsureRaidLeader() then return end
+
+  if is_party_lfg() then return end
+
   if GetNumLootItems() > 0 then
     local unitName, guid = self:GetTargetNameAndGUID()
     print(unitName, guid)
