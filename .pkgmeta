@@ -1,4 +1,4 @@
-package-as: EminentDKPRevived
+package-as: EminentDKP
 
 ignore:
     - .vscode

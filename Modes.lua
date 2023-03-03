@@ -362,10 +362,12 @@ local mailMode = EminentDKP:NewModule(L["Mail"],classModePrototype)
 local plateMode = EminentDKP:NewModule(L["Plate"],classModePrototype)
 clothMode.sortnum, leatherMode.sortnum, mailMode.sortnum, plateMode.sortnum = 5, 5, 5, 5
 
-local conqMode = EminentDKP:NewModule(L["Conqueror"],classModePrototype)
-local vanqMode = EminentDKP:NewModule(L["Vanquisher"],classModePrototype)
-local protMode = EminentDKP:NewModule(L["Protector"],classModePrototype)
-conqMode.sortnum, vanqMode.sortnum, protMode.sortnum = 8, 8, 8
+local dreadMode = EminentDKP:NewModule(L["Dreadful"],classModePrototype)
+local mysticMode = EminentDKP:NewModule(L["Mystic"],classModePrototype)
+local veneratedMode = EminentDKP:NewModule(L["Venerated"],classModePrototype)
+local zenithMode = EminentDKP:NewModule(L["Zenith"],classModePrototype)
+
+dreadMode.sortnum, mysticMode.sortnum, veneratedMode.sortnum, zenithMode.sortnum = 8, 8, 8, 8
 
 local allMode = EminentDKP:NewModule(L["All Classes"],classModePrototype)
 allMode.sortnum = 1
