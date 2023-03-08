@@ -76,6 +76,7 @@ local tempdisabled = true
 -- Disable any sync functionality
 local syncdisabled = false
 
+
 local function convertToTimestamp(datetime)
   local t, d = strsplit(' ',datetime)
   local hour, min = strsplit(':',t)
@@ -796,6 +797,13 @@ function EminentDKP:OnInitialize()
   self.requestedRanges = {}
   self.requestCooldown = false
   self.broadcastCooldown = false
+
+  self.STATE_DISABLED = 0
+  self.STATE_ENABLED = 1
+  self.STATE_TRACKING = 2
+
+  self.STATES = {self.STATE_ENABLED, self.STATE_DISABLED, self.STATE_TRACKING}
+  self.state = nil
   
   self:CreateAuctionFrame()
   self:ReloadWindows()
@@ -808,9 +816,11 @@ function EminentDKP:OnInitialize()
   self:ScheduleTimer("UndoTempDisable", 8)
 
   self:ScheduleTimer("ReloadWindows", 3)
+
+  self:ScheduleTimer("CheckState", 5)
   
   DEFAULT_CHAT_FRAME:AddMessage("|rYou are using |cFFEBAA32EminentDKP |cFFAAEB32v"..VERSION.."|r")
-  DEFAULT_CHAT_FRAME:AddMessage("|rVisit |cFFD2691Ehttp://eminent.enjin.com|r for feedback and support.")
+  ---DEFAULT_CHAT_FRAME:AddMessage("|rVisit |cFFD2691Ehttp://eminent.enjin.com|r for feedback and support.")
 end
 
 -- Restore officer functionality, we should know sync status by now
@@ -969,6 +979,8 @@ function EminentDKP:OnEnable()
   if type(CUSTOM_CLASS_COLORS) == "table" then
     self.classColors = CUSTOM_CLASS_COLORS
   end
+
+  self.state = self.STATE_ENABLED
   
   -- Broadcast version every 5 minutes
   self:ScheduleRepeatingTimer("BroadcastVersion", 300)
@@ -1172,6 +1184,7 @@ function EminentDKP:GetOfficerSetting(setting)
 end
 
 function EminentDKP:OnDisable()
+  self.state = self.STATE_DISABLED
 end
 
 function EminentDKP:GetVersion()
@@ -3539,5 +3552,19 @@ function EminentDKP:CHAT_MSG_WHISPER(message, from)
     sendchat("** " .. L["These commands can only be sent to the master looter while in a group"], from, 'whisper')
   else
     sendchat(L["Unrecognized command. Whisper %s for a list of valid commands."]:format("'$ help'"), from, 'whisper')
+  end
+end
+
+function EminentDKP:CheckState()
+  local isInstance, instanceType = IsInInstance()
+  EminentDKP:Print(isInstance, instanceType)
+
+  if isInstance and instanceType == 'raid' then
+    EminentDKP:Print('Player is in instance and its a raid')
+    self.state = self.STATE_TRACKING
+    EminentDKP:Print(self.state)
+  else
+    EminentDKP:Print('Player is not in instance')
+    EminentDKP:Print(self.state)
   end
 end
