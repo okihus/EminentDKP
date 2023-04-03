@@ -205,7 +205,7 @@ end
 
 -- Are we in a party?
 local function is_in_party()
-  return IsInGroup() == true
+  return IsInGroup(LE_PARTY_CATEGORY_HOME) == true
 end
 
 local function is_party_lfg()
@@ -1922,7 +1922,7 @@ end
 function EminentDKP:GetCurrentGroupMembersIDs()
   local players = {}
   local is_party = is_in_party()
-  for spot = 1, (is_party and 5 or 40) do
+  for spot = 1, GetNumGroupMembers() do
     local name = UnitName((is_party and "party" or "raid")..spot)
     if name then
       local pid = self:GetPlayerIDByName(name)
@@ -2326,12 +2326,20 @@ end
 -- Iterate over the group and determine loot eligibility
 function EminentDKP:UpdateLootEligibility()
   wipe(eligible_looters)
-  local count = (is_in_party() and (GetNumGroupMembers()+1) or 40)
-  for d = 1, count do
-    local c = self.groupLeaderName
-    if c then
-      print(c, d)
-      eligible_looters[c] = d
+
+  local name, rank
+
+  for i = 1, GetNumGroupMembers() do
+    name, rank = GetRaidRosterInfo(i)
+
+    if not name then
+      EminentDKP:Print("GetRaidRosterInfo returned nil in UpdateLootEligibility")
+      self:ScheduleTimer("UpdateLootEligibility", 1)
+      return
+    end
+
+    if name and rank == 2 then
+      eligible_looters[name] = i
     end
   end
 end
@@ -2534,14 +2542,12 @@ end
 
 ---function EminentDKP:AmMasterLooter()
 function EminentDKP:AmRaidLeader()
-  ---return (self.amMasterLooter and self:AmOfficer())
-  --- MODIFIED 
-  --- self.amGroupLeader = (UnitIsGroupLeader("player") and self:AmOfficer())
-  self.amGroupLeader = self:AmOfficer()
+  -- if GetNumGroupMembers() == 0 and (self.testMode) then
+  --   return true
+  -- end
+  self.amGroupLeader = (UnitIsGroupLeader("player") and self:AmOfficer())
   self.groupLeaderName = self.myName
-  --- ENDMODIFIED
-  --return (UnitIsGroupLeader("player") and self:AmOfficer())
-  return self:AmOfficer()
+  return (self:AmOfficer() and UnitIsGroupLeader("player"))
 end
 
 function EminentDKP:GetGroupLeaderName()
@@ -2558,13 +2564,6 @@ function EminentDKP:GetGroupLeaderName()
   end
 
   return nil
-  -- if self.lootMethod == 'master' then
-  --   if not UnitExists(self.masterLooterName) then
-  --     self:PARTY_LOOT_METHOD_CHANGED()
-  --   end
-  --   return self.masterLooterName
-  -- end
-  -- return nil
 end
 
 -- Loot window closing means cancel auction
@@ -2661,6 +2660,8 @@ function EminentDKP:LOOT_OPENED()
   if not self:AmRaidLeader() then return end
 
   if is_party_lfg() then return end
+
+  --if is_solo() then return end
   
   -- Query some info about this unit...
   local unitName, guid = self:GetTargetNameAndGUID()
@@ -3559,12 +3560,12 @@ function EminentDKP:CheckState()
   local isInstance, instanceType = IsInInstance()
   EminentDKP:Print(isInstance, instanceType)
 
-  if isInstance and instanceType == 'raid' then
+  if isInstance and instanceType == 'raid' and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
     EminentDKP:Print('Player is in instance and its a raid')
     self.state = self.STATE_TRACKING
     EminentDKP:Print(self.state)
   else
-    EminentDKP:Print('Player is not in instance')
+    EminentDKP:Print('Player is not in manual group or its lfr')
     EminentDKP:Print(self.state)
   end
 end

@@ -46,6 +46,8 @@
         "GREED",
         "ROLL_DISENCHANT",
         "PASS",
-        "IGNORE"
+        "IGNORE",
+        "LE_PARTY_CATEGORY_INSTANCE",
+        "LE_PARTY_CATEGORY_HOME"
     ]
 }
