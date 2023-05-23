@@ -1,4 +1,4 @@
-## Interface: 100007
+## Interface: 100010
 ## Title: EminentDKP
 ## Notes: DKP used by Eminent of Crushridge-US
 ## Author: Grioja
