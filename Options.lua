@@ -70,7 +70,7 @@ local default_window = {}
 EminentDKP:tcopy(default_window, EminentDKP.windowdefaults)
 
 EminentDKP.defaults = {
-  factionrealm = {
+  realm = {
     pools = {
       ["Default"] = {
         players = {},

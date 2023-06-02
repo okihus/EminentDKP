@@ -48,6 +48,20 @@
         "PASS",
         "IGNORE",
         "LE_PARTY_CATEGORY_INSTANCE",
-        "LE_PARTY_CATEGORY_HOME"
+        "LE_PARTY_CATEGORY_HOME",
+        "UIParentLoadAddOn",
+        "DisplayTableInspectorWindow",
+        "AUTOFOLLOWSTART",
+        "AutoFollowStatus",
+        "AutoFollowStatusText",
+        "escapePatternSymbols",
+        "BIND_TRADE_TIME_REMAINING",
+        "ITEM_BNETACCOUNTBOUND",
+        "ITEM_SOULBOUND",
+        "ITEM_ACCOUNTBOUND",
+        "INT_SPELL_DURATION_SEC",
+        "INT_SPELL_DURATION_HOURS",
+        "TIME_UNIT_DELIMITER",
+        "INT_SPELL_DURATION_MIN"
     ]
 }

@@ -35,6 +35,7 @@ local media = LibStub("LibSharedMedia-3.0")
 libCH:Embed(EminentDKP)
 local libS = LibStub:GetLibrary("AceSerializer-3.0")
 local libC = LibStub:GetLibrary("LibCompress")
+local LibDialog = LibStub("LibDialog-1.0")
 local libCE = libC:GetAddonEncodeTable()
 --local canuse = LibStub:GetLibrary("LibCanUse-1.0")
 
@@ -43,6 +44,18 @@ local VERSION = tonumber(Version) or Version
 local newest_version = ''
 local needs_update = false
 local addon_versions = {}
+
+
+EminentDKP.C_Container = C_Container or {
+  GetContainerNumSlots = GetContainerNumSlots,
+  GetContainerItemLink = GetContainerItemLink,
+  GetContainerNumFreeSlots = GetContainerNumFreeSlots,
+  GetContainerItemInfo = GetContainerItemInfo,
+  PickupContainerItem = PickupContainerItem,
+}
+
+local tooltipForParsing = CreateFrame("GameTooltip", "EminentDKP_Tooltip_Parse", nil, "GameTooltipTemplate")
+tooltipForParsing:UnregisterAllEvents() -- Don't use GameTooltip for parsing, because GameTooltip can be hooked by other addons.
 
 -- All the meter windows
 local windows = {}
@@ -68,7 +81,7 @@ local in_combat = false
 --local in_guild_group = false
 
 -- Whether or not officer functionality is allowed to run
-local enabled = true
+local enabled = false
 
 -- When logging in, officer functionality is disabled temporarily
 local tempdisabled = true
@@ -76,21 +89,13 @@ local tempdisabled = true
 -- Disable any sync functionality
 local syncdisabled = false
 
+-- Is loot handled by addon
+local handleLoot = false
 
-local function convertToTimestamp(datetime)
-  local t, d = strsplit(' ',datetime)
-  local hour, min = strsplit(':',t)
-  local month, day, year = strsplit('/',d)
-  
-  return time({day=day,month=month,year=year,hour=hour,min=min,sec=0})
-end
+local Unit = {}
 
 local function GetDate(timestamp)
   return date("%x",timestamp)
-end
-
-local function GetTodayDate()
-  return GetDate(time())
 end
 
 local function GetDaysBetween(this,that)
@@ -129,22 +134,19 @@ end
 local function sendchat(msg, chan, chantype)
   local prepend = "[EminentDKP] "
 
-  EminentDKP:Print(msg)
-  return
-
-  -- if chantype == "self" then
-  --   -- To self.
-  --   EminentDKP:Print(msg)
-  -- elseif chantype == "channel" then
-  --   -- To channel.
-  --   SendChatMessage(prepend .. msg, "CHANNEL", nil, chan)
-  -- elseif chantype == "preset" then
-  --   -- To a preset channel id (say, guild, etc).
-  --   SendChatMessage(prepend .. msg, string.upper(chan))
-  -- elseif chantype == "whisper" then
-  --   -- To player.
-  --   SendChatMessage(prepend .. msg, "WHISPER", nil, chan)
-  -- end
+  if chantype == "self" then
+    -- To self.
+    EminentDKP:Print(msg)
+  elseif chantype == "channel" then
+    -- To channel.
+    SendChatMessage(prepend .. msg, "CHANNEL", nil, chan)
+  elseif chantype == "preset" then
+    -- To a preset channel id (say, guild, etc).
+    SendChatMessage(prepend .. msg, string.upper(chan))
+  elseif chantype == "whisper" then
+    -- To player.
+    SendChatMessage(prepend .. msg, "WHISPER", nil, chan)
+  end
 end
 
 -- Compare two version numbers
@@ -208,6 +210,7 @@ local function is_in_party()
   return IsInGroup(LE_PARTY_CATEGORY_HOME) == true
 end
 
+-- Are we in lfg/lfr
 local function is_party_lfg()
   return IsPartyLFG()
 end
@@ -785,7 +788,7 @@ function EminentDKP:OnInitialize()
       mode:Enable()
     end
   end
-  
+ 
   self.myName, self.myRealm = UnitFullName("player")
   self.myGuild = GetGuildInfo("player")
   
@@ -797,14 +800,7 @@ function EminentDKP:OnInitialize()
   self.requestedRanges = {}
   self.requestCooldown = false
   self.broadcastCooldown = false
-
-  self.STATE_DISABLED = 0
-  self.STATE_ENABLED = 1
-  self.STATE_TRACKING = 2
-
-  self.STATES = {self.STATE_ENABLED, self.STATE_DISABLED, self.STATE_TRACKING}
-  self.state = nil
-  
+ 
   self:CreateAuctionFrame()
   self:ReloadWindows()
   
@@ -816,8 +812,6 @@ function EminentDKP:OnInitialize()
   self:ScheduleTimer("UndoTempDisable", 8)
 
   self:ScheduleTimer("ReloadWindows", 3)
-
-  self:ScheduleTimer("CheckState", 5)
   
   DEFAULT_CHAT_FRAME:AddMessage("|rYou are using |cFFEBAA32EminentDKP |cFFAAEB32v"..VERSION.."|r")
   ---DEFAULT_CHAT_FRAME:AddMessage("|rVisit |cFFD2691Ehttp://eminent.enjin.com|r for feedback and support.")
@@ -827,6 +821,7 @@ end
 function EminentDKP:UndoTempDisable()
   tempdisabled = false
   syncdisabled = false
+  self.myGuild = GetGuildInfo("player")
 end
 
 function EminentDKP:GlobalApplySettings()
@@ -949,7 +944,8 @@ function EminentDKP:OnEnable()
   self:RegisterEvent("ACHIEVEMENT_EARNED") -- achievement tracking
   self:RegisterEvent("LOOT_OPENED") -- loot listing
   self:RegisterEvent("LOOT_CLOSED") -- auction cancellation
-  self:RegisterEvent("LOOT_SLOT_CLEARED") -- loot tracking
+  -- self:RegisterEvent("LOOT_SLOT_CLEARED") -- loot tracking
+  self:RegisterEvent("START_LOOT_ROLL", self.OnStartLootRoll, self) -- Roll or pass loot
   --self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED") -- masterloot change
   --self:RegisterEvent("RAID_ROSTER_UPDATE") -- raid member list update
   self:RegisterEvent("GROUP_ROSTER_UPDATE") -- party member list update
@@ -958,6 +954,7 @@ function EminentDKP:OnEnable()
   self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED") -- death tracking
   self:RegisterEvent("UNIT_SPELLCAST_SENT") -- loot container tracking
   self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- loot container tracking
+  self:RegisterEvent("RAID_INSTANCE_WELCOME")
   --self:RegisterEvent("GUILD_PARTY_STATE_UPDATED") -- guild group tracking
   self:RegisterChatCommand("edkp", "ProcessSlashCmd") -- admin commands
   -- Addon messages
@@ -970,6 +967,7 @@ function EminentDKP:OnEnable()
   self:RegisterComm("EminentDKP-INF", "ProcessInformation")
   self:RegisterComm("EminentDKP-SOV", "ProcessOfficerSyncVersion")
   self:RegisterComm("EminentDKP-SOS", "ProcessOfficerSyncSettings")
+  self:RegisterComm("EminentDKP-HNDL", "ProcessHandleLoot")
   -- Custom event notifications
   --self:RawHookScript(LevelUpDisplay, "OnShow", "LevelUpDisplayShow")
   --self:RawHookScript(LevelUpDisplay, "OnHide", "LevelUpDisplayHide")
@@ -1123,8 +1121,7 @@ end
 
 -- Permission check for a command *sent* to a masterlooter
 function EminentDKP:EnsureToGroupLeader(addon,method,from)
-  local name, realm = string.gmatch(from, "(%w+)-(%w+)")
-  if not self.amGroupLeader then
+  if not EminentDKP:AmRaidLeader() then
     self:WhisperPlayer(addon,method,L["That command must be sent to the master looter."],from)
     return false
   end
@@ -1132,11 +1129,10 @@ function EminentDKP:EnsureToGroupLeader(addon,method,from)
     self:WhisperPlayer(addon,method,L["The master looter must be an officer."],from)
     return false
   end
-  -- MODIFIED CHECK IF PLAYER IS IN RAID GROUP
-  -- if not UnitExists(name) then
-  --   self:WhisperPlayer(addon,method,L["You are not in the current group."],from)
-  --   return false
-  -- end
+  if not Unit.InGroup(Unit.Name(from)) then
+    self:WhisperPlayer(addon,method,L["You are not in the current group."],from)
+    return false
+  end
   if not self:IsEnabled() then
     self:WhisperPlayer(addon,method,L["EminentDKP is currently disabled."],from)
     return false
@@ -1581,7 +1577,7 @@ function EminentDKP:ProcessSyncVersion(prefix, message, distribution, sender)
   
   -- If they load during an auction, and are eligible, notify them appropriately
   if welcome and welcome == "Hello" then
-    if self:AmRaidLeader() and auction_active and eligible_looters[sender] then
+    if self:AmRaidLeader() and auction_active and eligible_looters[Unit.GetUnitNameAndRealm(sender)] then
       -- Start the auction for them
       self:InformPlayer("auction",{ 
         guid=self.bidItem.srcGUID, 
@@ -1734,7 +1730,7 @@ function EminentDKP:AmOfficer()
 end
 
 function EminentDKP:GetActivePool()
-  return self.db.factionrealm.pools[self:GetSetting('activepool')]
+  return self.db.realm.pools[self:GetSetting('activepool')]
 end
 
 function EminentDKP:GetLastScan()
@@ -1754,7 +1750,7 @@ function EminentDKP:GetEventCount()
 end
 
 function EminentDKP:IsPlayerFresh(name)
-  local player = (type(name) == "string" and self:GetPlayerByName(name) or name)
+  local player = (type(name) == "string" and self:GetPlayerByName(Unit.GetUnitNameAndRealm(name)) or name)
   if player then
     return (not next(player.earnings) and not next(player.deductions))
   end
@@ -1769,7 +1765,7 @@ function EminentDKP:GetPlayerByID(pid)
 end
 
 function EminentDKP:GetPlayerByName(name)
-  local pid = self:GetPlayerIDByName(name)
+  local pid = self:GetPlayerIDByName(Unit.GetUnitNameAndRealm(name))
   if pid ~= nil then
     return self:GetPlayerByID(pid), pid
   end
@@ -1778,7 +1774,7 @@ end
 
 -- Get a player's ID
 function EminentDKP:GetPlayerIDByName(name)
-  return self:GetActivePool().playerIDs[name]
+  return self:GetActivePool().playerIDs[Unit.GetUnitNameAndRealm(name)]
 end
 
 -- Get player name from player ID
@@ -1804,7 +1800,13 @@ end
 
 -- Check whether or not a player exists in the currently active pool
 function EminentDKP:PlayerExistsInPool(name)
-  return (self:GetPlayerIDByName(name) ~= nil)
+  if (self:GetPlayerIDByName(name) ~= nil) then
+    self:Print('Player ' .. name .. ' exists in pool')
+    return true
+  else
+    self:Print('Player ' .. name .. ' does not exist in pool')
+    return false
+  end
 end
 
 -- Update a player's last raid day
@@ -1836,12 +1838,12 @@ end
 
 -- Get the your current DKP
 function EminentDKP:GetMyCurrentDKP()
-  return self:GetPlayerDKPByName(self.myName)
+  return self:GetPlayerDKPByName(Unit.MyName())
 end
 
 -- Get the your class name
 function EminentDKP:GetMyClass()
-  return self:GetPlayerClassByName(self.myName)
+  return self:GetPlayerClassByName(Unit.MyName())
 end
 
 -- Get the ids of all active and non-fresh players in the pool
@@ -1871,7 +1873,7 @@ end
 -- Get the names of everybody else in the pool
 function EminentDKP:GetOtherPlayersNames(active)
   local list = self:GetPlayerNames(active)
-  list[self.myName] = nil
+  list[Unit.MyNameShort()] = nil
   return list
 end
 
@@ -1921,9 +1923,12 @@ end
 -- Construct list of IDs for players currently in the group
 function EminentDKP:GetCurrentGroupMembersIDs()
   local players = {}
-  local is_party = is_in_party()
-  for spot = 1, GetNumGroupMembers() do
-    local name = UnitName((is_party and "party" or "raid")..spot)
+  for d = 1, GetNumGroupMembers() do
+    local unitId = IsInRaid() and "raid"..d or "party"..d
+    if not UnitExists(unitId) then
+      unitId = "player"
+    end
+    local name = Unit.GetUnitNameAndRealm(unitId)
     if name then
       local pid = self:GetPlayerIDByName(name)
       if pid then
@@ -1932,6 +1937,56 @@ function EminentDKP:GetCurrentGroupMembersIDs()
     end
   end
   return players
+end
+
+function Unit.RealmName()
+  return (GetRealmName():gsub("%s", ""))
+end
+
+function Unit.InGroup(unit)
+    return UnitInParty(unit) or UnitInRaid(unit)
+end
+
+function Unit.MyName()
+  return Unit.GetUnitNameAndRealm("player")
+end
+
+function Unit.MyNameShort()
+  return Unit.ShortName("player")
+end
+
+
+-- Get a unit's name (incl. realm name if from another realm)
+function Unit.Name(unit)
+  unit = Unit(unit)
+  local name, realm = UnitName(unit)
+
+  return name and name .. (realm and realm ~= "" and "-" .. realm or "")
+      or unit and unit ~= "" and not unit:find("^[a-z]") and unit
+      or nil
+end
+
+-- Get a unit's short name (without realm name)
+---@param unit string
+---@return string
+function Unit.ShortName(unit)
+    local name = UnitName(Unit(unit))
+
+    return name and name
+        or unit and unit:match("^(.+)-.+$")
+        or unit and unit ~= "" and not unit:find("^[a-z]") and unit
+        or nil
+end
+
+-- Get unit full name and realm
+function Unit.GetUnitNameAndRealm(unit)
+  local name, realm = UnitFullName(Unit(unit))
+  realm = realm ~= "" and realm or Unit.RealmName()
+
+  return name and name .. '-' .. realm
+    or unit and unit:match("^(.*-.*)$")
+    or unit and unit ~= "" and not unit:find("^[a-z]") and unit .. '-' .. realm
+    or nil
 end
 
 -- Construct list of players currently in the group
@@ -2333,14 +2388,11 @@ function EminentDKP:UpdateLootEligibility()
     name, rank = GetRaidRosterInfo(i)
 
     if not name then
-      EminentDKP:Print("GetRaidRosterInfo returned nil in UpdateLootEligibility")
       self:ScheduleTimer("UpdateLootEligibility", 1)
       return
     end
 
-    if name and rank == 2 then
-      eligible_looters[name] = i
-    end
+    eligible_looters[Unit.GetUnitNameAndRealm(name)] = i
   end
 end
 
@@ -2385,6 +2437,13 @@ function EminentDKP:PLAYER_ENTERING_WORLD()
   -- Hide the meters if we're PVPing and we want it hidden
   self:HideMeterCheck()
   self:DisableCheck()
+end
+
+function EminentDKP:RAID_INSTANCE_WELCOME()
+  if not IsInRaid() then return end
+  if self:AmRaidLeader() then
+    return LibDialog:Spawn("EMINENT_CONFIRM_USAGE")
+  end
 end
 
 -- Check if we're not dead and group is not in combat, then we're out of combat
@@ -2449,19 +2508,23 @@ function EminentDKP:CheckGroupPlayers()
 
   if is_solo() then return end
 
-  if is_in_party() then return end
+  -- if is_party_lfg() then return end
 
-  if is_party_lfg() then return end
+  -- if not IsInRaid() then return end
 
-  if not IsInRaid() then return end
+  local is_party = is_in_party()
 
   for d = 1, GetNumGroupMembers() do
-    local name, rank, subgroup, level, classname = GetRaidRosterInfo(d)
-    if name and UnitExists("raid"..d) and not self:PlayerExistsInPool(name) then
-      local unitName, realmName = UnitFullName("raid"..d)
-      if unitName and realmName then
-        local fullName = unitName .. "-" .. realmName
-        self:CreateAddPlayerSyncEvent(fullName,classname)
+    local unitId = IsInRaid() and "raid"..d or "party"..d
+    if not UnitExists(unitId) then
+      unitId = "player"
+    end
+    local name = Unit.GetUnitNameAndRealm(unitId)
+    if name and UnitExists(Unit.ShortName(name)) and not self:PlayerExistsInPool(name) then
+      local guildName = GetGuildInfo(Unit.ShortName(name))
+      local unitName, rank, sub, level, classname = GetRaidRosterInfo(d)
+      if name and guildName == self.myGuild then
+        self:CreateAddPlayerSyncEvent(name, classname:upper())
       end
     end
   end
@@ -2472,6 +2535,7 @@ end
 function EminentDKP:ScheduleGroupCheck()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() or not self:IsEnabled() then return end
+  self:Print('am raid leader, and is enabled')
   
   self:CancelTimer(self.groupCheckTimer,true)
   self.groupCheckTimer = self:ScheduleTimer("CheckGroupPlayers",2)
@@ -2489,9 +2553,6 @@ function EminentDKP:HideMeterCheck()
 end
 
 function EminentDKP:DisableCheck()
-  --[[
-  (self:GetOfficerSetting('guildgroup') and not in_guild_group)
-  ]]
   if (self:GetOfficerSetting('disableparty') and is_in_party()) or
      is_party_lfg() or
      (self:GetOfficerSetting('disablepvp') and is_in_pvp()) then
@@ -2542,25 +2603,15 @@ end
 
 ---function EminentDKP:AmMasterLooter()
 function EminentDKP:AmRaidLeader()
-  -- if GetNumGroupMembers() == 0 and (self.testMode) then
-  --   return true
-  -- end
-  self.amGroupLeader = (UnitIsGroupLeader("player") and self:AmOfficer())
-  self.groupLeaderName = self.myName
   return (self:AmOfficer() and UnitIsGroupLeader("player"))
 end
 
 function EminentDKP:GetGroupLeaderName()
-  if IsInRaid() then
+  if IsInRaid() or is_in_party() then
     local leader = GetRaidRosterInfo(1)
     self.masterLooterName = leader or nil
 
     return self.masterLooterName
-  end
-
-  -- MODIFIED DELETE LATER
-  if is_solo() then
-    return self.myName
   end
 
   return nil
@@ -2645,14 +2696,14 @@ function EminentDKP:RemoveMarkedItemSlots(guid)
 end
 
 -- Keeps track of items in the loot window
-function EminentDKP:LOOT_SLOT_CLEARED(event, slot)
-  -- This only needs to be run by the masterlooter
-  if not self:AmRaidLeader() then return end
-  local guid = select(2,self:GetTargetNameAndGUID())
-  if recent_loots[guid] and slot > recent_loots[guid].slotOffset then
-    self:MarkItemSlotAsRemoved(guid,slot)
-  end
-end
+-- function EminentDKP:LOOT_SLOT_CLEARED(event, slot)
+--   -- This only needs to be run by the masterlooter
+--   if not self:AmRaidLeader() then return end
+--   local guid = select(2,self:GetTargetNameAndGUID())
+--   if recent_loots[guid] and slot > recent_loots[guid].slotOffset then
+--     self:MarkItemSlotAsRemoved(guid,slot)
+--   end
+-- end
 
 -- Prints out the loot to the group when looting a corpse
 function EminentDKP:LOOT_OPENED()
@@ -2661,21 +2712,18 @@ function EminentDKP:LOOT_OPENED()
 
   if is_party_lfg() then return end
 
-  --if is_solo() then return end
-  
+  if is_solo() then return end
+
   -- Query some info about this unit...
   local unitName, guid = self:GetTargetNameAndGUID()
-  print(unitName, guid)
   if GetNumLootItems() > 0 then
     local eligible_items = {}
     local slotlist = {}
     local itemlist = {}
     for slot = 1, GetNumLootItems() do 
       local lootIcon, lootName, lootQuantity, currencyId, rarity = GetLootSlotInfo(slot)
-      print(lootIcon, lootName, lootQuantity, rarity)
       if lootQuantity > 0 and rarity >= self:GetOfficerSetting('itemrarity') then
         local link = GetLootSlotLink(slot)
-        print(link)
         table.insert(eligible_items,link)
         table.insert(
           itemlist,{ 
@@ -2731,20 +2779,14 @@ end
 
 -- Place a bid on an active auction
 function EminentDKP:Bid(addon,from,amount)
-  local name, realm = string.gmatch(from, "(%w+)-(%w+)")
   if not self:EnsureToGroupLeader(addon,"bid",from) then return end
   if auction_active then
-    print(eligible_looters[name])
-    if eligible_looters[name] then
+    if eligible_looters[Unit.GetUnitNameAndRealm(from)] then
       local bid = math.floor(tonumber(amount) or 0)
       if bid >= 1 then
         if self:PlayerHasDKP(from,bid) then
-          --if canuse:CanUseItem(self:GetPlayerClassByName(from),self.bidItem.itemLink) then
             self.bidItem.bids[from] = bid
             self:WhisperPlayer(addon,"bid",L["Your bid of %d has been accepted."]:format(bid), from, true)
-          --else
-          --  self:WhisperPlayer(addon,"bid",L["You cannot utilize this item."], from)
-          --end
         else
           self:WhisperPlayer(addon,"bid",L["The DKP amount must not exceed your current DKP."], from)
         end
@@ -2854,15 +2896,132 @@ function EminentDKP:WhisperCheck(who, to)
 end
 
 ------------- START ADMIN FUNCTIONS -------------
+function EminentDKP:AdminAddItemToSession(arg)
+  if not arg or arg == "" then return end
+
+  local eligible_items = {}
+  local itemlist = {}
+  local slotlist = {}
+
+  if arg == "bags" or arg == "all" then
+    local items = EminentDKP:GetAllItemsInBagsWithTradeTimer()
+    for i = 1, #items do
+      local link = items[i]
+      local itemName, itemLink, itemQuality, itemLevel = GetItemInfo(link)
+      if itemQuality >= self:GetOfficerSetting('itemrarity') then
+        table.insert(eligible_items, link)
+        table.insert(itemlist, {
+          info=string.match(link, "item[%-?%d:]+"),
+          itemlink=itemLink,
+          auctioned=false,
+          removed=false, 
+          slot=i
+        })
+        table.insert(slotlist, 1, i)
+      end
+    end
+
+    local guid = 'asd'
+    if #eligible_items > 0 then
+      if not recent_loots[guid] or recent_loots[guid].available > #(eligible_items) then
+        recent_loots[guid] = {
+          name='boss',
+          slots=slotlist,
+          slotOffset=(slotlist[#(slotlist)] - 1),
+          available=#(slotlist),
+          items=itemlist,
+          removed={}
+        }
+      else
+        wipe(recent_loots[guid].removed)
+        recent_loots[guid].slots = slotlist
+        recent_loots[guid].available = #(slotlist)
+        recent_loots[guid].slotOffset = slotlist[recent_loots[guid].available] - 1
+      end
+    end
+  end
+end
+
+function EminentDKP:GetAllItemsInBagsWithTradeTimer()
+  local items = {}
+  for container = 0, _G.NUM_BAG_SLOTS do
+    for slot=1, self.C_Container.GetContainerNumSlots(container) or 0 do
+      local time = self:GetContainerItemTradeTimeRemaining(container, slot)
+      if time > 0 and time < math.huge then
+        tinsert(items, self.C_Container.GetContainerItemLink(container, slot))
+      end
+    end
+  end
+  return items
+end
+
+function EminentDKP:CompleteFormatSimpleStringWithPluralRule(str, count)
+	local text = format(str, count)
+	if count < 2 then
+		return text:gsub("|4(.+):(.+);", "%1")
+	else
+		return text:gsub("|4(.+):(.+);", "%2")
+	end
+end
+
+function EminentDKP:GetContainerItemTradeTimeRemaining(container, slot)
+	tooltipForParsing:SetOwner(UIParent, "ANCHOR_NONE") -- This lines clear the current content of tooltip and set its position off-screen
+	tooltipForParsing:SetBagItem(container, slot) -- Set the tooltip content and show it, should hide the tooltip before function ends
+	if not tooltipForParsing:NumLines() or tooltipForParsing:NumLines() == 0 then return 0 end
+
+	local bindTradeTimeRemainingPattern = escapePatternSymbols(BIND_TRADE_TIME_REMAINING):gsub("%%%%s", "%(%.%+%)") -- PT locale contains "-", must escape that.
+	local bounded = false
+
+	for i = 1, tooltipForParsing:NumLines() or 0 do
+		local line = getglobal(tooltipForParsing:GetName() .. 'TextLeft' .. i)
+		if line and line.GetText then
+			local text = line:GetText() or ""
+			if text == ITEM_SOULBOUND or text == ITEM_ACCOUNTBOUND or text == ITEM_BNETACCOUNTBOUND then bounded = true end
+
+			local timeText = text:match(bindTradeTimeRemainingPattern)
+			if timeText then -- Within 2h trade window, parse the time text
+				tooltipForParsing:Hide()
+
+				for hour = 1, 0, -1 do -- time>=60s, format: "1 hour", "1 hour 59 min", "59 min", "1 min"
+					local hourText = ""
+					if hour > 0 then hourText = self:CompleteFormatSimpleStringWithPluralRule(INT_SPELL_DURATION_HOURS, hour) end
+					for min = 59, 0, -1 do
+						local time = hourText
+						if min > 0 then
+							if time ~= "" then time = time .. TIME_UNIT_DELIMITER end
+							time = time .. self:CompleteFormatSimpleStringWithPluralRule(INT_SPELL_DURATION_MIN, min)
+						end
+
+						if time == timeText then return hour * 3600 + min * 60 end
+					end
+				end
+				for sec = 59, 1, -1 do -- time<60s, format: "59 s", "1 s"
+					local time = self:CompleteFormatSimpleStringWithPluralRule(INT_SPELL_DURATION_SEC, sec)
+					if time == timeText then return sec end
+				end
+				-- As of Patch 7.3.2(Build 25497), the parser have been tested for all 11 in-game languages when time < 1h and time > 1h. Shouldn't reach here.
+				-- If it reaches here, there are some parsing issues. Let's return 2h.
+				return 7200
+			end
+		end
+	end
+	tooltipForParsing:Hide()
+	if bounded then
+		return 0
+	else
+		return math.huge
+	end
+end
+
 
 function EminentDKP:AdminStartAuction()
   if not self:EnsureRaidLeader() then return end
 
   if is_party_lfg() then return end
 
-  if GetNumLootItems() > 0 then
-    local unitName, guid = self:GetTargetNameAndGUID()
-    print(unitName, guid)
+  local items = EminentDKP:GetAllItemsInBagsWithTradeTimer()
+  if #items > 0 then
+    local guid = 'asd'
     if #(recent_loots[guid].slots) > 0 then
       if not auction_active then
         -- Fast forward to next eligible slot
@@ -2871,7 +3030,7 @@ function EminentDKP:AdminStartAuction()
         
         while (not itemLink or self:IsSlotAuctioned(guid,slot)) and #(recent_loots[guid].slots) > 0 do
           slot = tremove(recent_loots[guid].slots)
-          itemLink = GetLootSlotLink(slot)
+          itemLink = recent_loots[guid].items[slot].itemlink
         end
         
         if not itemLink then
@@ -2881,7 +3040,6 @@ function EminentDKP:AdminStartAuction()
         auction_active = true
         
         -- Gather some info about this item
-        local lootIcon, lootName, lootQuantity, currencyId, rarity = GetLootSlotInfo(slot)
         local gui_slot = self:GetGUISlot(guid,slot)
         
         -- Update eligibility list
@@ -2930,7 +3088,7 @@ function EminentDKP:AuctionBidTimer()
     self:CancelTimer(self.bidTimer)
     self:MessageGroup(L["Auction has closed. Determining winner..."])
     
-    local looter = self.myName
+    local looter = Unit.MyName()
     local gui_slot = self:GetGUISlot(self.bidItem.srcGUID,self.bidItem.slotNum)
     
     -- Update eligibility list
@@ -2983,7 +3141,7 @@ function EminentDKP:AuctionBidTimer()
       local dividend = (secondHighestBid/#(players))
       
       self:CreateAuctionSyncEvent(players,looter,secondHighestBid,recent_loots[self.bidItem.srcGUID].name,self.bidItem.itemString)
-      self:MessageGroup(L["%s has won %s for %d DKP!"]:format(looter,GetLootSlotLink(self.bidItem.slotNum),secondHighestBid))
+      self:MessageGroup(L["%s has won %s for %d DKP!"]:format(looter,self.bidItem.itemLink,secondHighestBid))
       self:MessageGroup(L["Each player has received %.02f DKP."]:format(dividend))
       self:InformPlayer("auctionwon",{
         guid = self.bidItem.srcGUID, 
@@ -3230,7 +3388,7 @@ function EminentDKP:InformPlayer(...)
     self:SendCommMessage('EminentDKP-INF',tosync,channel)
   else
     -- If directed to ourself, just bypass the addon channel
-    if target == self.myName then
+    if target == Unit.MyNameShort() then
       self:ActuateNotification(notifyType,rawdata)
     else
       -- Otherwise inform the person as usual
@@ -3242,7 +3400,7 @@ end
 local cached_notifications = {}
 
 function EminentDKP:ProcessInformation(prefix, message, distribution, sender)
-  if sender == self.myName then return end
+  if sender == Unit.MyNameShort() then return end
   if not self:IsAnOfficer(sender) then return end
   -- Decode the compressed data
   local one = libCE:Decode(message)
@@ -3314,7 +3472,7 @@ function EminentDKP:ActuateNotification(notifyType,data)
     -- Wait a second to ensure the items are in the itemcache
     self:ScheduleTimer("RunCachedNotifications",1)
   elseif notifyType == "adjustment" then
-    if data.receiver == self.myName then
+    if data.receiver == Unit.MyNameShort() then
       -- We received an adjustment
       self:NotifyOnScreen("ADJUSTMENT_RECEIVED",data.amount,data.receiver,data.deduct)
     else
@@ -3328,7 +3486,7 @@ function EminentDKP:ActuateNotification(notifyType,data)
     -- Bounty received
     self:NotifyOnScreen("BOUNTY_RECEIVED",data.amount)
   elseif notifyType == "transfer" then
-    if data.receiver == self.myName then
+    if data.receiver == Unit.MyNameShort() then
       -- We received a transfer
       self:NotifyOnScreen("TRANSFER_RECEIVED",data.amount,data.sender)
     else
@@ -3350,7 +3508,7 @@ function EminentDKP:ActuateNotification(notifyType,data)
     if not self:AmRaidLeader() then auction_active = false end
     self:ShowAuctionItems(data.guid)
     self:ShowAuctionWinner(data.slot,data.receiver,data.amount,data.tie)
-    if data.receiver == self.myName then
+    if data.receiver == Unit.MyNameShort() then
       self:NotifyOnScreen("AUCTION_WON",data.item,data.amount)
     end
   elseif notifyType == "auctiondisenchant" then
@@ -3373,7 +3531,7 @@ function EminentDKP:ActuateNotification(notifyType,data)
   elseif notifyType == "reset" then
     -- A reset notification was given, so we must reset as well
     if self:AmOfficer() then
-      if data.sender == self.myName then return end
+      if data.sender == Unit.MyNameShort() then return end
       -- If an officer, give the option of complying, for security purposes
       tempdisabled = true
       syncdisabled = true
@@ -3464,7 +3622,7 @@ function EminentDKP:ResetDatabase()
   local modes = {}
   self:tcopy(modes,db.modes)
   wipe(db)
-  self:tcopy(db,self.defaults.factionrealm.pools["Default"])
+  self:tcopy(db,self.defaults.realm.pools["Default"])
   db.revision = rev
   db.modes = modes
   
@@ -3479,7 +3637,7 @@ end
 
 -- Handle slash commands
 function EminentDKP:ProcessSlashCmd(input)
-  local command, arg1, arg2, e = self:GetArgs(input, 3)
+  local command, arg1, args2, e = self:GetArgs(input, 3)
 
   if command == 'auction' then
     self:AdminStartAuction()
@@ -3493,7 +3651,7 @@ function EminentDKP:ProcessSlashCmd(input)
       EminentDKP:ConfirmAction("EminentDKPReset",
                                L["Are you sure you want to reset the database for ALL users? This cannot be undone."],
                                function()
-                                 EminentDKP:InformPlayer("reset",{ sender = EminentDKP.myName },nil,"GUILD")
+                                 EminentDKP:InformPlayer("reset",{ sender = Unit.MyNameShort() },nil,"GUILD")
                                  EminentDKP:ResetDatabase()
                                end)
     else
@@ -3508,6 +3666,8 @@ function EminentDKP:ProcessSlashCmd(input)
     InterfaceOptionsFrame_OpenToCategory("EminentDKP")
   elseif command == 'action' then
     self:CreateActionPanel()
+  elseif command == 'session' then
+    self:AdminAddItemToSession(arg1)
   elseif command == 'version' then
     local say_what = "Current version is "..self:GetVersion()
     if self:GetNewestVersion() ~= self:GetVersion() then
@@ -3515,6 +3675,7 @@ function EminentDKP:ProcessSlashCmd(input)
     end
     self:Print(say_what)
   elseif command == 'check' then
+    self:Print('Starting check')
     EminentDKP:ScheduleGroupCheck()
   elseif command == 'upd' then
     EminentDKP:UpdateModes(true)
@@ -3556,16 +3717,99 @@ function EminentDKP:CHAT_MSG_WHISPER(message, from)
   end
 end
 
-function EminentDKP:CheckState()
-  local isInstance, instanceType = IsInInstance()
-  EminentDKP:Print(isInstance, instanceType)
-
-  if isInstance and instanceType == 'raid' and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-    EminentDKP:Print('Player is in instance and its a raid')
-    self.state = self.STATE_TRACKING
-    EminentDKP:Print(self.state)
-  else
-    EminentDKP:Print('Player is not in manual group or its lfr')
-    EminentDKP:Print(self.state)
+function EminentDKP:ProcessHandleLoot(prefix, message, distribution, sender)
+  if sender == Unit.MyNameShort() then return end
+  if message == "StartHandleLoot" then
+    handleLoot = true
+    EminentDKP:Print(L["now_handles_looting"])
+  elseif message ==  "StopHandleLoot" then
+    handleLoot = false
+    EminentDKP:Print(L["stopped_handling_loot"])
   end
 end
+
+function EminentDKP:GetGroupChannel()
+  if IsInRaid() then
+    return "RAID"
+  elseif IsInGroup() then
+    return "PARTY"
+  end
+end
+
+function EminentDKP:SendStartLootHandling()
+  self:SendCommMessage("EminentDKP-HNDL", "StartHandleLoot", EminentDKP:GetGroupChannel())
+end
+
+function EminentDKP:SendStopLootHandling()
+  self:SendCommMessage("EminentDKP-HNDL", "StopHandleLoot", EminentDKP:GetGroupChannel())
+end
+
+function EminentDKP:StartHandleLoot()
+  EminentDKP:Print(L["now_handles_looting"])
+  handleLoot = true
+  EminentDKP:SendStartLootHandling()
+end
+
+function EminentDKP:OnStartLootRoll(_, rollID)
+  -- EminentDKP:Log("START_LOOT_ROLL", rollID)
+  if not enabled then return EminentDKP:Print("Addon disabled, ignoring group loot") end
+  local link = GetLootRollItemLink(rollID)
+  local canNeed = select(6, GetLootRollItemInfo(rollID))
+  if EminentDKP:ShouldPassOnLoot() then
+    -- EminentDKP:Log("Passing on loot", link)
+    EminentDKP:RollOnLoot(rollID, 0)
+  elseif EminentDKP:ShouldRollOnLoot() then
+    -- EminentDKP:Log("Rolling on loot", link, canNeed)
+    local needGreed = canNeed and 1 or 2
+    EminentDKP:RollOnLoot(rollID, needGreed)
+    EminentDKP.OnLootRoll(link, rollID, needGreed)
+  end
+end
+
+function EminentDKP:RollOnLoot(rollID, rollType)
+  self:ScheduleTimer(RollOnLoot, 0, rollID, rollType)
+end
+
+function EminentDKP:ShouldPassOnLoot()
+  return handleLoot and not EminentDKP:AmRaidLeader() and GetNumGroupMembers() > 1
+end
+
+function EminentDKP:ShouldRollOnLoot()
+  return handleLoot and EminentDKP:AmRaidLeader() and GetNumGroupMembers() > 1
+end
+
+function EminentDKP:StopHandleLoot()
+  EminentDKP:Print(L["stopped_handling_loot"])
+  handleLoot = false
+  EminentDKP:SendStopLootHandling()
+end
+
+LibDialog:Register("EMINENT_CONFIRM_USAGE", {
+  text = L["confirm_usage_text"],
+  on_show = function(self)
+    self:SetFrameStrata("FULLSCREEN")
+  end,
+  buttons = {
+    {
+      text = _G.YES,
+      on_click = function ()
+        EminentDKP:StartHandleLoot()
+      end,
+    },
+    {
+      text = _G.NO,
+      on_click = function ()
+        EminentDKP:StopHandleLoot()
+      end,
+    }
+  },
+  hide_on_escape = true,
+  show_while_dead = true
+})
+
+setmetatable(Unit, {
+  ---@param unit string
+  __call = function (_, unit)
+      return unit and unit:gsub("-" .. Unit.RealmName(), "") or ""
+  end
+})

@@ -382,3 +382,7 @@ L["Deduction"] = "Deduction"
 L["Issue"] = "Issue"
 
 L["Versions"] = "Versions"
+
+L["confirm_usage_text"] = "Do you want to use eminent dkp in this group?"
+L["now_handles_looting"] = "Loot is now being handled."
+L["stopped_handling_loot"] = "Loot handling is now disabled."
