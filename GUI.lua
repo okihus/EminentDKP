@@ -35,6 +35,7 @@ local EminentDKP = EminentDKP
 local meter = EminentDKP:NewModule("MeterDisplay", "SpecializedLibBars-1.1")
 local libwindow = LibStub("LibWindow-1.1")
 local media = LibStub("LibSharedMedia-3.0")
+local ST = LibStub("ScrollingTable")
 
 -- Our display providers.
 EminentDKP.displays = {}
@@ -43,6 +44,8 @@ EminentDKP.classColors = RAID_CLASS_COLORS
 
 local color_red = { .9, .10, .10 }
 local color_green = { .10, .9, .10 }
+
+local ROW_HEIGHT = 40
 
 -- Add to EminentDKP's list of display providers.
 meter.name = "Meter display"
@@ -243,12 +246,11 @@ end
 
 -- Send a bid for the auction
 local function SubmitBid(frame)
-  -- MODIFIED
-  --PlaySound("LOOTWINDOWCOINSOUND")
   last_bid_frame = frame:GetParent()
   last_bid_frame.bid.bidamt:ClearFocus()
   EminentDKP:ScheduleBidTimeout()
   EminentDKP:SendCommand("bid",last_bid_frame.bid.bidamt:GetText())
+  PlaySound(567428, "Master")
 end
 
 -- This clears the focus of a frame (editbox)
@@ -389,7 +391,7 @@ local function CreateNewItemFrame()
   
   local bidamt = CreateFrame("EditBox", nil, itemframe, "BackdropTemplate")
   bidamt:SetPoint("RIGHT", bid, "LEFT", -1, 2)
-  bidamt:SetWidth(55)
+  bidamt:SetWidth(80)
   bidamt:SetHeight(20)
   bidamt:SetTextInsets(5, 5, 5, 3)
   bidamt:SetMaxLetters(6)
@@ -563,7 +565,7 @@ function EminentDKP:CancelAuction(slot)
   frame.status.spark:Hide()
   frame.winner:SetText(L["Auction cancelled"])
   frame.winner:Show()
-  --PlaySound("AuctionWindowClose")
+  PlaySoundFile(567499, "Master")
 end
 
 -- Start the timer and show bid box/button for an item
@@ -579,8 +581,7 @@ function EminentDKP:StartAuction(slot,timeleft,window)
   frame.status:Show()
   frame.status.spark:Show()
   frame.winner:Hide()
-  -- MODIFIED
-  --PlaySound("AuctionWindowOpen")
+  PlaySoundFile(567482, "Master")
 end
 
 -- Label an item disenchanted

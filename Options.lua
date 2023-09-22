@@ -70,6 +70,13 @@ local default_window = {}
 EminentDKP:tcopy(default_window, EminentDKP.windowdefaults)
 
 EminentDKP.defaults = {
+  global = {
+    logMaxEntries = 2000,
+    log = {},
+    verTestCandidates= {},
+    errors = {},
+    cache = {}
+  },
   realm = {
     pools = {
       ["Default"] = {
@@ -90,6 +97,8 @@ EminentDKP.defaults = {
     }
   },
   profile = {
+    baggedItems ={},
+    itemStorage = {},
     activepool = "Default",
     hidesolo = false,
     hideparty = false,
@@ -135,6 +144,65 @@ EminentDKP.defaults = {
     tooltiprows = 5,
     tooltippos = "default",
     columns = {},
+
+    UI = { -- stores all ui information
+      ["**"] = { -- Defaults
+        y           = 0,
+        x           = 0,
+        point       = "CENTER",
+        scale       = 1.1, --0.8,
+        bgColor     = { 0, 0, 0.2, 1, },
+        borderColor = { 0.3, 0.3, 0.5, 1, },
+        border      = "Blizzard Tooltip",
+        background  = "Blizzard Tooltip",
+      },
+      lootframe = { -- We want the Loot Frame to get a little lower
+        y = -200,
+      },
+      tradeui = {
+        x = -300,
+      },
+      default = {}, -- base line
+    },
+
+    skins = {
+      new_blue = {
+        name = "Midnight blue",
+        bgColor = { 0, 0, 0.2, 1, }, -- Blue-ish
+        borderColor = { 0.3, 0.3, 0.5, 1, }, -- More Blue-ish
+        border = "Blizzard Tooltip",
+        background = "Blizzard Tooltip",
+      },
+      old_red = {
+        name = "Old golden red",
+        bgColor = { 0.5, 0, 0, 1, },
+        borderColor = { 1, 0.5, 0, 1, },
+        border = "Blizzard Tooltip",
+        background = "Blizzard Dialog Background Gold",
+      },
+      minimalGrey = {
+        name = "Minimal Grey",
+        bgColor = { 0.25, 0.25, 0.25, 1, },
+        borderColor = { 1, 1, 1, 0.2, },
+        border = "Blizzard Tooltip",
+        background = "Blizzard Tooltip",
+      },
+      legion = {
+        name = "Legion Green",
+        bgColor = { 0.1, 1, 0, 1, },
+        borderColor = { 0, 0.8, 0, 0.75, },
+        background = "Blizzard Garrison Background 2",
+        border = "Blizzard Dialog Gold",
+      },
+      bfa = {
+        name = "Battle for Azeroth",
+        bgColor = { 0.55, 0.84, 1, 1, },
+        borderColor = { 0.62, 0.86, 0.87, 0.85, },
+        border = "Blizzard Dialog",
+        background = "Blizzard Garrison Background 3",
+      },
+    },
+    currentSkin = "bfa",
   }
 }
 

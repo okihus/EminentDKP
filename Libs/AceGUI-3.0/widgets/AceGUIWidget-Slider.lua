@@ -104,7 +104,7 @@ local function EditBox_OnEnterPressed(frame)
 	end
 	
 	if value then
-		PlaySound("igMainMenuOptionCheckBoxOn")
+		PlaySound(856)
 		self.slider:SetValue(value)
 		self:Fire("OnMouseUp", value)
 	end
@@ -222,7 +222,7 @@ local function Constructor()
 	label:SetJustifyH("CENTER")
 	label:SetHeight(15)
 
-	local slider = CreateFrame("Slider", nil, frame)
+	local slider = CreateFrame("Slider", nil, frame, "BackdropTemplate")
 	slider:SetOrientation("HORIZONTAL")
 	slider:SetHeight(15)
 	slider:SetHitRectInsets(0, 0, -10, 0)
@@ -244,7 +244,7 @@ local function Constructor()
 	local hightext = slider:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	hightext:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", -2, 3)
 
-	local editbox = CreateFrame("EditBox", nil, frame)
+	local editbox = CreateFrame("EditBox", nil, frame, "BackdropTemplate")
 	editbox:SetAutoFocus(false)
 	editbox:SetFontObject(GameFontHighlightSmall)
 	editbox:SetPoint("TOP", slider, "BOTTOM")

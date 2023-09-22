@@ -1,4 +1,4 @@
-## Interface: 100100
+## Interface: 100107
 ## Title: EminentDKP
 ## Notes: DKP used by Eminent of Crushridge-US
 ## Author: Grioja
@@ -12,7 +12,18 @@ embeds.xml
 
 Locale\locale.xml
 
+Classes\Core.lua
+Classes\Utils\TempTable.lua
+Classes\Utils\Log.lua
+
 Core.lua
 Options.lua
 GUI.lua
 Modes.lua
+
+UI\UI.lua
+UI\Widgets\Widgets.xml
+
+Modules\Modules.xml
+
+Utils\ItemStorage.lua

@@ -452,7 +452,7 @@ function barListPrototype:NewBarFromPrototype(prototype, ...)
 	local bar, isNew = lib.NewBarFromPrototype(self, prototype, ...)
 	bar:SetTexture(self.texture)
 	bar:SetFill(self.fill)
-	-- if isNew then bar:SetValue(0) end
+	--- if isNew then bar:SetValue(0) end
 	
 	if self.showIcon then bar:ShowIcon() else bar:HideIcon(bar) end
 	if self.showLabel then bar:ShowLabel() else bar:HideLabel(bar) end
@@ -1327,9 +1327,6 @@ end
 
 function barPrototype:SetIcon(icon)
 	if icon then
-		if type(icon) == "number" then
-			icon = select(3, GetSpellInfo(icon))
-		end
 		self.icon:SetTexture(icon)
 		if self.showIcon then
 			self.icon:Show()

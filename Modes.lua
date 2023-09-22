@@ -528,7 +528,8 @@ function winnerMode:PopulateData(win)
 		d.value = event.value
 		d.valuetext = FormatValueText(EminentDKP:FormatNumber(event.value), self.metadata.columns.DKP,
 		                              EminentDKP:GetPlayerNameByID(event.target), self.metadata.columns.Winner)
-		d.icon = select(10, GetItemInfo(event.extraInfo))
+    --- d.icon = select(10, GetItemInfoInstant(event.extraInfo))
+		d.icon = select(5, GetItemInfoInstant(event.extraInfo))
 	
 		if d.value > max then
 			max = d.value

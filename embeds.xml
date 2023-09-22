@@ -22,4 +22,5 @@ xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 <Script file="Libs\LibWindow-1.1\LibWindow-1.1.lua"/>
 <Include file="Libs\AceGUI-3.0-SharedMediaWidgets\widget.xml"/>
 <Script file="Libs\SpecializedLibBars-1.1\SpecializedLibBars-1.1.lua" />
+<Include file="Libs\lib-st\lib-st.xml" />
 </Ui>

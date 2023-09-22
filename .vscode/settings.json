@@ -62,6 +62,16 @@
         "INT_SPELL_DURATION_SEC",
         "INT_SPELL_DURATION_HOURS",
         "TIME_UNIT_DELIMITER",
-        "INT_SPELL_DURATION_MIN"
+        "INT_SPELL_DURATION_MIN",
+        "class",
+        "MoneyWonAlertFrame_SetUp",
+        "AlertFrame",
+        "LootAlertSystem",
+        "FauxScrollFrame_Update",
+        "FauxScrollFrame_OnVerticalScroll",
+        "FauxScrollFrame_GetOffset",
+        "UISpecialFrames",
+        "HandleModifiedItemClick",
+        "GameFontDisableSmall"
     ]
 }

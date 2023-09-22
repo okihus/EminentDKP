@@ -26,9 +26,10 @@
   ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 ]]
-
+local addonname, addontable = ...
 local Version = GetAddOnMetadata("EminentDKP", "Version")
-EminentDKP = LibStub("AceAddon-3.0"):NewAddon("EminentDKP", "AceComm-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceConsole-3.0", "AceHook-3.0")
+---@class EminentDKP : AceAddon-3.0, AceConsole-3.0, AceEvent-3.0, AceComm-3.0, AceHook-3.0, AceTimer-3.0
+_G.EminentDKP = LibStub("AceAddon-3.0"):NewAddon(addontable, addonname, "AceComm-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceConsole-3.0", "AceHook-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale("EminentDKP", false)
 local libCH = LibStub:GetLibrary("LibChatHandler-1.0")
 local media = LibStub("LibSharedMedia-3.0")
@@ -45,6 +46,14 @@ local newest_version = ''
 local needs_update = false
 local addon_versions = {}
 
+local db, debugLog
+
+local defaultModules = {
+	sessionframe = "EminentDKPSessionFrame",
+}
+local userModules = {
+	sessionframe = nil,
+}
 
 EminentDKP.C_Container = C_Container or {
   GetContainerNumSlots = GetContainerNumSlots,
@@ -52,6 +61,7 @@ EminentDKP.C_Container = C_Container or {
   GetContainerNumFreeSlots = GetContainerNumFreeSlots,
   GetContainerItemInfo = GetContainerItemInfo,
   PickupContainerItem = PickupContainerItem,
+  LevelUpDisplay = LevelUpDisplay
 }
 
 local tooltipForParsing = CreateFrame("GameTooltip", "EminentDKP_Tooltip_Parse", nil, "GameTooltipTemplate")
@@ -205,9 +215,16 @@ local function is_solo()
   return IsInGroup() == false
 end
 
--- Are we in a party?
+--- Are we in a party?
+---@return boolean
 local function is_in_party()
-  return IsInGroup(LE_PARTY_CATEGORY_HOME) == true
+  if IsInRaid() then
+    return false
+  elseif IsInGroup() then
+    return true
+  else
+    return false
+  end
 end
 
 -- Are we in lfg/lfr
@@ -746,6 +763,10 @@ end
 
 -- Setup basic info and get database from saved variables
 function EminentDKP:OnInitialize()
+  self.Log = self.Require "Utils.Log":New()
+  self.debug = true
+
+  self.lootSlotInfo = {}
   -- Register the SharedMedia
   media:Register("font", "Adventure",       [[Interface\Addons\EminentDKP\fonts\Adventure.ttf]])
   media:Register("font", "ABF",         [[Interface\Addons\EminentDKP\fonts\ABF.ttf]])
@@ -771,6 +792,7 @@ function EminentDKP:OnInitialize()
   
   -- DB
   self.db = LibStub("AceDB-3.0"):New("EminentDKPDB", self.defaults, "Default")
+  self.InitLogging()
   LibStub("AceConfig-3.0"):RegisterOptionsTable("EminentDKP", self.options)
   self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("EminentDKP", "EminentDKP")
 
@@ -781,7 +803,12 @@ function EminentDKP:OnInitialize()
   self.db.RegisterCallback(self, "OnProfileChanged", "ReloadWindows")
   self.db.RegisterCallback(self, "OnProfileCopied", "ReloadWindows")
   self.db.RegisterCallback(self, "OnProfileReset", "ReloadWindows")
-  
+
+  db = self.db.profile
+  debugLog = self.db.global.log
+
+  self.Log("Logged In")
+  self:ModulesOnInitialize()
   -- Modes
   for name, mode in EminentDKP:IterateModules() do
     if mode.OnEnable then
@@ -969,17 +996,17 @@ function EminentDKP:OnEnable()
   self:RegisterComm("EminentDKP-SOS", "ProcessOfficerSyncSettings")
   self:RegisterComm("EminentDKP-HNDL", "ProcessHandleLoot")
   -- Custom event notifications
-  --self:RawHookScript(LevelUpDisplay, "OnShow", "LevelUpDisplayShow")
-  --self:RawHookScript(LevelUpDisplay, "OnHide", "LevelUpDisplayHide")
-  --self:RawHookScript(RaidWarningFrame, "OnEvent", "HideRaidWarning")
-  --self:RawHook("LevelUpDisplay_AnimStep", "LevelUpDisplayFinished", true)
+  -- self:RawHookScript(LevelUpDisplay, "OnShow", "LevelUpDisplayShow")
+  -- self:RawHookScript(LevelUpDisplay, "OnHide", "LevelUpDisplayHide")
+  -- self:RawHookScript(RaidWarningFrame, "OnEvent", "HideRaidWarning")
+  -- self:RawHook("LevelUpDisplay_AnimStep", "LevelUpDisplayFinished", true)
   
   if type(CUSTOM_CLASS_COLORS) == "table" then
     self.classColors = CUSTOM_CLASS_COLORS
   end
 
-  self.state = self.STATE_ENABLED
-  
+  self:ScheduleTimer("InitItemStorage", 5, self) -- Delay to have a better change of getting correct item info
+
   -- Broadcast version every 5 minutes
   self:ScheduleRepeatingTimer("BroadcastVersion", 300)
 end
@@ -1160,10 +1187,6 @@ end
 -- Check if the command can only be used by masterlooter (and officer)
 function EminentDKP:EnsureRaidLeader()
   if not self:EnsureOfficership() then return false end
-  -- if self.lootMethod ~= 'master' then
-  --   self:DisplayActionResult(L["Master looting must be enabled."])
-  --   return false
-  -- end
   if not self:AmRaidLeader() then
     self:DisplayActionResult(L["Only the master looter can use that command."])
     return false
@@ -1180,7 +1203,6 @@ function EminentDKP:GetOfficerSetting(setting)
 end
 
 function EminentDKP:OnDisable()
-  self.state = self.STATE_DISABLED
 end
 
 function EminentDKP:GetVersion()
@@ -1787,6 +1809,9 @@ function EminentDKP:GetPlayerNameByID(pid)
   error("Player with ID '" .. pid .. "' was not found.",0)
 end
 
+--- Get player class by pid
+---@param pid string
+---@return string
 function EminentDKP:GetPlayerClassByID(pid)
   if self:GetActivePool().players[pid] then
     return self:GetActivePool().players[pid].class
@@ -1794,17 +1819,20 @@ function EminentDKP:GetPlayerClassByID(pid)
   error("Player with ID '" .. pid .. "' was not found.",0)
 end
 
+--- Returns player class by player name
+---@param name string
+---@return string
 function EminentDKP:GetPlayerClassByName(name)
   return self:GetPlayerClassByID(self:GetPlayerIDByName(name))
 end
 
--- Check whether or not a player exists in the currently active pool
+--- Check whether or not a player exists in the currently active pool
+---@param name string
+---@return boolean
 function EminentDKP:PlayerExistsInPool(name)
   if (self:GetPlayerIDByName(name) ~= nil) then
-    self:Print('Player ' .. name .. ' exists in pool')
     return true
   else
-    self:Print('Player ' .. name .. ' does not exist in pool')
     return false
   end
 end
@@ -1912,7 +1940,8 @@ function EminentDKP:GetCurrentGroupMembersNames()
   local players = {}
   local is_party = is_in_party()
   for spot = 1, (is_party and 5 or 40) do
-    local name = UnitName((is_party and "party" or "raid")..spot)
+    local unitId = IsInRaid() and "raid"..spot or "party"..spot
+    local name = Unit.Name(unitId)
     if name then
       table.insert(players,name)
     end
@@ -2440,6 +2469,7 @@ function EminentDKP:PLAYER_ENTERING_WORLD()
 end
 
 function EminentDKP:RAID_INSTANCE_WELCOME()
+  self.Log("RAID_INSTANCE_WELCOME()", IsInRaid())
   if not IsInRaid() then return end
   if self:AmRaidLeader() then
     return LibDialog:Spawn("EMINENT_CONFIRM_USAGE")
@@ -2506,28 +2536,30 @@ function EminentDKP:CheckGroupPlayers()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() or not self:IsEnabled() then return end
 
-  if is_solo() then return end
-
-  -- if is_party_lfg() then return end
-
-  -- if not IsInRaid() then return end
-
-  local is_party = is_in_party()
-
+  --- Loop other members
   for d = 1, GetNumGroupMembers() do
+    local className = nil
     local unitId = IsInRaid() and "raid"..d or "party"..d
-    if not UnitExists(unitId) then
-      unitId = "player"
-    end
     local name = Unit.GetUnitNameAndRealm(unitId)
-    if name and UnitExists(Unit.ShortName(name)) and not self:PlayerExistsInPool(name) then
-      local guildName = GetGuildInfo(Unit.ShortName(name))
-      local unitName, rank, sub, level, classname = GetRaidRosterInfo(d)
-      if name and guildName == self.myGuild then
-        self:CreateAddPlayerSyncEvent(name, classname:upper())
+    if name and UnitExists(unitId) and not self:PlayerExistsInPool(name) then
+      local guildName = GetGuildInfo(Unit.Name(name))
+      className = UnitClass(Unit.Name(name))
+      if name and className and guildName == self.myGuild then
+        self:CreateAddPlayerSyncEvent(name, className:upper())
       end
     end
   end
+
+  --- Add player after loop
+  local playerName = Unit.GetUnitNameAndRealm("player")
+  local playerClass = UnitClass("player")
+
+  if playerName and not self:PlayerExistsInPool(playerName) then
+    self:CreateAddPlayerSyncEvent(playerName, playerClass:upper())
+  end
+end
+
+function EminentDKP:TestCheckGroupPlayers()
 end
 
 -- Player names aren't always immediately available, so we have to schedule
@@ -2535,7 +2567,6 @@ end
 function EminentDKP:ScheduleGroupCheck()
   -- This only needs to be run by the masterlooter
   if not self:AmRaidLeader() or not self:IsEnabled() then return end
-  self:Print('am raid leader, and is enabled')
   
   self:CancelTimer(self.groupCheckTimer,true)
   self.groupCheckTimer = self:ScheduleTimer("CheckGroupPlayers",2)
@@ -2897,6 +2928,7 @@ end
 
 ------------- START ADMIN FUNCTIONS -------------
 function EminentDKP:AdminAddItemToSession(arg)
+  self.Log("AdminAddItemToSession(): ", arg)
   if not arg or arg == "" then return end
 
   local eligible_items = {}
@@ -2905,6 +2937,7 @@ function EminentDKP:AdminAddItemToSession(arg)
 
   if arg == "bags" or arg == "all" then
     local items = EminentDKP:GetAllItemsInBagsWithTradeTimer()
+    self.Log("items: ", items)
     for i = 1, #items do
       local link = items[i]
       local itemName, itemLink, itemQuality, itemLevel = GetItemInfo(link)
@@ -3013,6 +3046,37 @@ function EminentDKP:GetContainerItemTradeTimeRemaining(container, slot)
 	end
 end
 
+function EminentDKP:AdminAuction(arg)
+  assert(type(arg) == "string", "Argument needs to be a string")
+  if arg == 'start' then
+      self:AdminStartAuction()
+  end
+
+  if arg == 'end' then
+      EminentDKP:Print('Stop auction')
+      self:AdminEndAuction()
+  end
+  EminentDKP:Print("Invalid command, try /edkp auction start or /edkp auction end")
+end
+
+function EminentDKP:AdminEndAuction()
+  if self:AmRaidLeader() then
+    lastContainerName = nil
+    if auction_active then
+        auction_active = false
+        self:CancelTimer(self.bidTimer, true)
+        self:MessageGroup(L["Auction cancelled. All bids have been voided."])
+        self:InformPlayer("auctioncancel",{
+          guid = self.bidItem.srcGUID,
+          slot = self:GetGUISlot(self.bidItem.srcGUID,self.bidItem.slotNum),
+        })
+        self:RemoveMarkedItemSlots(self.bidItem.srcGUID)
+        self:InformPlayer("lootdone",{ guid = self.bidItem.srcGUID })
+        self.bidItem = nil
+        self.auctionRecycleTimer = self:ScheduleTimer("RecycleAuctionItems",6,true)
+    end
+  end
+end
 
 function EminentDKP:AdminStartAuction()
   if not self:EnsureRaidLeader() then return end
@@ -3156,8 +3220,6 @@ function EminentDKP:AuctionBidTimer()
     -- Mark the item as auctioned
     self:MarkItemSlotAsAuctioned(self.bidItem.srcGUID,self.bidItem.slotNum)
     
-    -- Distribute the loot
-    -- MODIFIED
     self:MessageGroup(L["Please trade item to %s"]:format(looter))
     -- GiveMasterLoot(self.bidItem.slotNum, eligible_looters[looter])
     
@@ -3637,10 +3699,11 @@ end
 
 -- Handle slash commands
 function EminentDKP:ProcessSlashCmd(input)
-  local command, arg1, args2, e = self:GetArgs(input, 3)
+  self.Log("ProcessSlashCmd()")
+  local command, arg1, arg2, e = self:GetArgs(input, 3)
 
   if command == 'auction' then
-    self:AdminStartAuction()
+    self:AdminAuction(arg1)
   elseif command == 'rebuild' then
     self:RebuildDatabase()
   elseif command == 'reset' then
@@ -3667,18 +3730,25 @@ function EminentDKP:ProcessSlashCmd(input)
   elseif command == 'action' then
     self:CreateActionPanel()
   elseif command == 'session' then
-    self:AdminAddItemToSession(arg1)
+    if EminentDKP:EnsureRaidLeader() then
+      self:AdminAddItemToSession(arg1)
+    end
+  elseif command == 'debugframe' then
+     self:GetActiveModule('sessionframe'):Show()
+  elseif command == 'debug' or command == 'd' then
+      self.debug = not self.debug
+      self:Print("Debug = " .. tostring(self.debug))
+  elseif command == "debuglog" or command == "log" then
+      for k, v in ipairs(debugLog) do print(k, v); end
+  elseif command == "clearlog" then
+      wipe(debugLog)
+      self:Print("Debug Log cleared.")
   elseif command == 'version' then
     local say_what = "Current version is "..self:GetVersion()
     if self:GetNewestVersion() ~= self:GetVersion() then
       say_what = say_what .. " (latest is "..self:GetNewestVersion()..")"
     end
     self:Print(say_what)
-  elseif command == 'check' then
-    self:Print('Starting check')
-    EminentDKP:ScheduleGroupCheck()
-  elseif command == 'upd' then
-    EminentDKP:UpdateModes(true)
   end
 end
 
@@ -3721,10 +3791,10 @@ function EminentDKP:ProcessHandleLoot(prefix, message, distribution, sender)
   if sender == Unit.MyNameShort() then return end
   if message == "StartHandleLoot" then
     handleLoot = true
-    EminentDKP:Print(L["now_handles_looting"])
+    self.Log(L["now_handles_looting"])
   elseif message ==  "StopHandleLoot" then
     handleLoot = false
-    EminentDKP:Print(L["stopped_handling_loot"])
+    self.Log(L["stopped_handling_loot"])
   end
 end
 
@@ -3782,6 +3852,29 @@ function EminentDKP:StopHandleLoot()
   EminentDKP:Print(L["stopped_handling_loot"])
   handleLoot = false
   EminentDKP:SendStopLootHandling()
+end
+
+function EminentDKP:Getdb()
+  return db
+end
+
+--- Creates a standard button for RCLootCouncil.
+-- @param text The button's text.
+-- @param parent The frame that should hold the button.
+-- @return The button object.
+function EminentDKP:CreateButton(text, parent)
+	local b = self.UI:New("EminentDKPButton", parent)
+	b:SetText(text)
+	return b
+end
+
+--- Returns the active module.
+--	Always use this when calling functions in another module.
+-- @paramsig module
+-- @param module String, must correspond to a index in self.defaultModules.
+-- @return The module object of the active module or nil if not found. Prioritises userModules if set.
+function EminentDKP:GetActiveModule(module)
+	return self:GetModule(userModules[module] or defaultModules[module], false)
 end
 
 LibDialog:Register("EMINENT_CONFIRM_USAGE", {
